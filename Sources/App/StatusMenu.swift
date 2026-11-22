@@ -40,6 +40,9 @@ enum LoginItem {
 final class DisplaySyncAppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var panel: NSWindow?
+    private let restoreItem = NSMenuItem(title: "恢复右屏扩展…", action: #selector(restoreExtension), keyEquivalent: "")
+    private var recoveryTarget: DisplayRecovery.Target?
+    private var restoringExtension = false
     private let loginItem = NSMenuItem(title: "登录时启动", action: #selector(toggleLoginItem), keyEquivalent: "")
     private let approvalItem = NSMenuItem(title: "打开系统登录项设置…", action: #selector(openLoginSettings), keyEquivalent: "")
     private let showOnLaunch: Bool
@@ -62,6 +65,9 @@ final class DisplaySyncAppDelegate: NSObject, NSApplicationDelegate, NSMenuDeleg
         let menu = NSMenu(title: "X1 Air 双屏调节")
         menu.delegate = self
         menu.addItem(menuItem("打开双屏调节…", action: #selector(showPanel)))
+        restoreItem.target = self
+        restoreItem.isHidden = true
+        menu.addItem(restoreItem)
         menu.addItem(.separator())
         loginItem.target = self
         approvalItem.target = self
@@ -72,6 +78,7 @@ final class DisplaySyncAppDelegate: NSObject, NSApplicationDelegate, NSMenuDeleg
         updateLoginMenu()
         item.menu = menu
         statusItem = item
+        DisplayRecovery.rememberDesktopModes()
         if showOnLaunch { showPanel() }
     }
 
@@ -80,8 +87,14 @@ final class DisplaySyncAppDelegate: NSObject, NSApplicationDelegate, NSMenuDeleg
         return true
     }
 
-    func menuWillOpen(_ menu: NSMenu) {
+    func menuNeedsUpdate(_ menu: NSMenu) {
         updateLoginMenu()
+        recoveryTarget = restoringExtension ? nil : DisplayRecovery.target()
+        restoreItem.isHidden = recoveryTarget == nil
+    }
+
+    func applicationDidChangeScreenParameters(_ notification: Notification) {
+        if !restoringExtension { DisplayRecovery.rememberDesktopModes() }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -118,6 +131,31 @@ final class DisplaySyncAppDelegate: NSObject, NSApplicationDelegate, NSMenuDeleg
 
         NSApp.activate()
         panel?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func restoreExtension() {
+        guard !restoringExtension, let recoveryTarget else { return }
+        restoringExtension = true
+        restoreItem.isHidden = true
+
+        Task {
+            let alert = NSAlert()
+            do {
+                let scaleRestored = try await DisplayRecovery.restore(recoveryTarget)
+                alert.messageText = "右屏已恢复为扩展显示器"
+                if !scaleRestored {
+                    alert.informativeText = "上次使用的缩放未能恢复。可以在「系统设置 → 显示器」中重新选择。"
+                }
+                DisplayRecovery.rememberDesktopModes()
+            } catch {
+                alert.alertStyle = .warning
+                alert.messageText = "无法确认右屏恢复"
+                alert.informativeText = error.localizedDescription
+            }
+            restoringExtension = false
+            NSApp.activate()
+            alert.runModal()
+        }
     }
 
     @objc private func toggleLoginItem() {

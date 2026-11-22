@@ -144,8 +144,7 @@ static bool panelSupportsMenu(PanelConnection *connection) {
         connection->response[2] == 1;
 }
 
-static int withPanels(PanelDisplays *displays, int (^operation)(PanelPair *panels)) {
-    *displays = (PanelDisplays){0};
+static int withPanelDevices(int (^operation)(IOHIDDeviceRef upper, IOHIDDeviceRef lower, PanelSerials serials)) {
     @autoreleasepool {
         IOHIDManagerRef manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
         if (!manager) {
@@ -155,7 +154,7 @@ static int withPanels(PanelDisplays *displays, int (^operation)(PanelPair *panel
                                     @kIOHIDPrimaryUsagePageKey: @0xff00, @kIOHIDPrimaryUsageKey: @1 };
         IOHIDManagerSetDeviceMatching(manager, (__bridge CFDictionaryRef)matching);
         CFSetRef devices = IOHIDManagerCopyDevices(manager);
-        NSSet *candidates = CFBridgingRelease(devices);
+        NSSet *candidates = (__bridge NSSet *)devices;
 
         IOHIDDeviceRef upper = NULL;
         IOHIDDeviceRef lower = NULL;
@@ -183,23 +182,38 @@ static int withPanels(PanelDisplays *displays, int (^operation)(PanelPair *panel
         }
 
         ambiguous |= upperSerial != 0 && upperSerial == lowerSerial;
-        int result = ambiguous ? PanelPairAmbiguous : BrightnessMissing;
-        if (!ambiguous) {
-            *displays = (PanelDisplays){displayIDForSerial(upperSerial), displayIDForSerial(lowerSerial)};
-        }
-        if (displays->upper || displays->lower) {
-            PanelPair panels = {0};
-            if (upper) openPanel(&panels.upper, upper);
-            if (lower) openPanel(&panels.lower, lower);
-            if (!panelSupportsMenu(&panels.upper)) closePanel(&panels.upper);
-            if (!panelSupportsMenu(&panels.lower)) closePanel(&panels.lower);
-            result = operation(&panels);
-            closePanel(&panels.upper);
-            closePanel(&panels.lower);
-        }
+        int result = ambiguous ? PanelPairAmbiguous : operation(upper, lower, (PanelSerials){upperSerial, lowerSerial});
+        if (devices) CFRelease(devices);
         CFRelease(manager);
         return result;
     }
+}
+
+int readPanelSerials(PanelSerials *serials) {
+    *serials = (PanelSerials){0};
+    return withPanelDevices(^int(IOHIDDeviceRef upper, IOHIDDeviceRef lower, PanelSerials found) {
+        if (!upper || !lower) return BrightnessMissing;
+        *serials = found;
+        return BrightnessOK;
+    });
+}
+
+static int withPanels(PanelDisplays *displays, int (^operation)(PanelPair *panels)) {
+    *displays = (PanelDisplays){0};
+    return withPanelDevices(^int(IOHIDDeviceRef upper, IOHIDDeviceRef lower, PanelSerials serials) {
+        *displays = (PanelDisplays){displayIDForSerial(serials.upper), displayIDForSerial(serials.lower)};
+        if (!displays->upper && !displays->lower) return BrightnessMissing;
+
+        PanelPair panels = {0};
+        if (upper) openPanel(&panels.upper, upper);
+        if (lower) openPanel(&panels.lower, lower);
+        if (!panelSupportsMenu(&panels.upper)) closePanel(&panels.upper);
+        if (!panelSupportsMenu(&panels.lower)) closePanel(&panels.lower);
+        int result = operation(&panels);
+        closePanel(&panels.upper);
+        closePanel(&panels.lower);
+        return result;
+    });
 }
 
 typedef struct {

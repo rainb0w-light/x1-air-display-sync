@@ -12,6 +12,8 @@ X1 Air 在一根 USB-C 线连接 Mac 的瀑布模式下，会向 macOS 提供一
 
 本应用通过 USB HID 识别 X1 Air 的两块物理面板，分别发送同一项设置。每次操作后，窗口会显示上屏和下屏各自回报的值。
 
+应用也可以恢复一种 macOS 黑屏故障。X1 Air 仍接着 USB-C，却从「系统设置 → 显示器」消失，可能是 macOS 将它保存在独立输出（`IndependentOutput`）状态。这个状态会在重启后恢复，右屏因而仍然没有桌面画面。
+
 ## 适用硬件与接线
 
 | 项目 | 支持及验证情况 |
@@ -31,6 +33,7 @@ X1 Air 在一根 USB-C 线连接 Mac 的瀑布模式下，会向 macOS 提供一
 - 查看上下屏实际回报的值。同步失败时，应用尝试恢复本次操作前的值，并重新读取可用结果。
 - 显示黑白灰阶与彩色色块，便于对照两块面板和另一台参考屏。
 - 从 macOS 菜单栏打开调节窗口。可在同一菜单中勾选「登录时启动」。
+- 检测到 X1 Air 卡在独立输出状态时，在菜单栏提供「恢复右屏扩展」。
 
 HDR 切换在这套设备上出现过回读不一致，HDR 可通过显示器机身菜单调节。
 
@@ -39,7 +42,7 @@ HDR 切换在这套设备上出现过回读不一致，HDR 可通过显示器机
 需要 Apple 芯片 Mac，以及带有 macOS SDK 和 Swift 编译器的 Xcode 或 Command Line Tools。
 
 ```bash
-git clone https://github.com/rainb0w-light/x1-air-display-sync.git
+git clone https://github.com/StephenMelon/x1-air-display-sync.git
 cd x1-air-display-sync
 ./build.sh
 open ".build/X1 Air Display Sync.app"
@@ -58,6 +61,12 @@ open ".build/X1 Air Display Sync.app"
 调色温或画面模式后，显示器固件可能同时刷新 RGB 或其他画面参数。应用会重新读取设置。
 
 ## 常见问题
+
+### X1 Air 黑屏，macOS 的「显示器」列表也找不到 Monitor
+
+保持 X1 Air 以 USB-C 直连，并使用瀑布模式。点击菜单栏双屏图标，选择「恢复右屏扩展…」。恢复入口会在应用确认两块面板的 USB 身份、视频输出和 macOS 保存的独立输出状态后出现。应用只会在点击后重新启用匹配的 X1 Air，并检查它是否回到扩展桌面。若应用已记住该屏的桌面缩放，也会尝试恢复这个缩放。
+
+此恢复方式已在 **M4 Mac mini、macOS 27.2、X1 Air USB-C 瀑布模式**下验证。恢复功能依赖 macOS 私有的 SkyLight 显示配置接口，系统版本更新可能影响可用性。菜单没有该项时，应用未能确认这项恢复可用。 [独立输出黑屏复现记录](https://www.cheverjohn.me/macos-26-stop-extending-blanked-my-monitor-fixing-windowserver-independentoutput)
 
 ### macOS 看到了画面，应用却读不到面板
 
@@ -84,6 +93,7 @@ open ".build/X1 Air Display Sync.app"
 ## 实现与许可证
 
 - `Sources/App` 使用 SwiftUI 绘制调节窗口，使用 AppKit 提供菜单栏图标，通过 `SMAppService` 管理登录项。
+- `Sources/App/DisplayRecovery.swift` 读取 WindowServer 当前保存的显示配置，结合物理面板身份定位目标，通过独立的显示配置事务恢复扩展桌面。
 - `Sources/Monitor` 通过 IOKit 查询 USB HID 的型号、面板角色和亮度等设置。应用根据设备回报识别上屏与下屏，并匹配当前显示输出。
 - `Scripts/GenerateIcons.swift` 生成应用图标与菜单栏模板图标。
 - `Vendor/m1ddc` 包含读取参考屏 DDC/CI 亮度所用的源码及其 MIT 许可。 [m1ddc](https://github.com/waydabber/m1ddc)
